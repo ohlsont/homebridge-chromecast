@@ -1,6 +1,13 @@
 const Client = require('castv2-client').Client,
       DefaultMediaReceiver = require('castv2-client').DefaultMediaReceiver,
-      Promise = require('bluebird');
+      Promise = require('bluebird'),
+      MultiReceiver = require('./multi-receiver.js');
+
+const connections = {};
+
+function isGroup(chromecast){
+  return chromecast.txtRecord.md === 'Google Cast Group';
+}
 
 function connect(chromecast){
   console.log('Connecting to ' + chromecast.name);
@@ -8,47 +15,73 @@ function connect(chromecast){
   const host = chromecast.addresses[0],
         client = Promise.promisifyAll(new Client());
 
-  return client.connectAsync(host)
-    .then(() => client);
+  if(connections[chromecast.name]){
+    return Promise.resolve(connections[chromecast.name]);
+  }
+
+  /*
+  oogle.cast.receiver data={"requestId":9,"status":{"applications":[{"appId":"MultizoneLeader","displayName":"Spotify","isIdleScreen":false,"sessionId":"34F16C8A-89FF-401C-829F-E1CD3472CBC8","statusText":"Spotify"}],"volume":{"controlType":"attenuation","level":0.027450980618596077,"muted":false,"stepInterval":0.05000000074505806}},"type":"RECEIVER_STATUS"} +5ms
+  */
+
+  return client.connectAsync(isGroup(chromecast) ? { host: host, port: chromecast.port } : host)
+    .then(() => {
+      connections[chromecast.name] = client;
+      return client;
+    });
 }
 
-function join(client){
+const handleSuccess = (client) =>
+  data => {
+    //client.close();
+    return data;
+  }
+
+const handleError = (client) =>
+  error => {
+    //client.close();
+    return Promise.reject(new Error(error));
+  };
+
+function join(client, chromecast){
   console.log('Joining app..');
+  console.log(chromecast);
   return client.getSessionsAsync()
-    .then(sessions => console.log(sessions) || sessions.length > 0
-      ? client.joinAsync(sessions[0], DefaultMediaReceiver).then(Promise.promisifyAll)
-      : client.closeAsync().then(() => Promise.reject(new Error('No session to join..')))
-    );
+    .then(sessions => (chromecast.sessions = sessions) && sessions)
+    .then(sessions => sessions.length > 0
+      ? client.joinAsync(sessions[0], /*chromecast.txtRecord.md === 'Google Cast Group' ? MultiReceiver : */DefaultMediaReceiver).then(Promise.promisifyAll)
+      : Promise.reject('No session to join..')
+    )
 }
 
 function pause(chromecast){
   console.log('Pausing on ' + chromecast.name);
   return connect(chromecast)
-    .then(client => join(client)
-      .then(app => app.getStatusAsync()
+    .then(client => join(client, chromecast)
+      .then(app => console.log(app) || app.getStatusAsync()
         .then(status => app.pauseAsync()
           .then(() => {
             chromecast.currentStatus = status;
-            return client.closeAsync().then(() => status);
+            return status; //todo: playing status will not be in sync
           })
         )
       )
-    );
+      .then(handleSuccess(client), handleError(client))
+    )
 }
 
 function play(chromecast){
   console.log('Playing on ' + chromecast.name);
   return connect(chromecast)
-    .then(client =>
-      join(client)
-        .then(app => app.getStatusAsync()
-          .then(status => app.playAsync()
-            .then(() => {
-              chromecast.currentStatus = status;
-              return client.closeAsync().then(() => status);
-            })
-          )
+    .then(client => join(client, chromecast)
+      .then(app => app.getStatusAsync()
+        .then(status => app.playAsync()
+          .then(() => {
+            chromecast.currentStatus = status; //todo: playing status will not be in sync
+            return status;
+          })
         )
+      )
+      .then(handleSuccess(client), handleError(client))
     );
   }
 
@@ -60,8 +93,8 @@ function setVolume(chromecast, volume){
         if(chromecast.currentStatus){
           chromecast.currentStatus.volume.level = volume / 100;
         }
-        return client.closeAsync();
       })
+      .then(handleSuccess(client), handleError(client))
     );
 }
 
@@ -70,11 +103,13 @@ function getVolume(chromecast){
   return connect(chromecast)
     .then(client => client.getVolumeAsync()
       .then(volume => {
+        console.log(volume);
         if(chromecast.currentStatus){
           chromecast.currentStatus.volume.level = volume.level;
         }
-        return client.closeAsync().then(() => volume.level);
+        return volume.level;
       })
+      .then(handleSuccess(client), handleError(client))
     );
 }
 
@@ -104,14 +139,14 @@ function getVolume(chromecast){
 
 function getStatus(chromecast){
   return connect(chromecast)
-    .then(client => join(client)
+    .then(client => join(client, chromecast)
       .then(app => app.getStatusAsync())
       .then(status => console.log(status) || status)
       .then(status => {
-        client.close();
         chromecast.currentStatus = status;
         return status;
       })
+      .then(handleSuccess(client), handleError(client))
     )
 }
 

@@ -2,6 +2,7 @@ const http = require('http'),
       _ = require('lodash'),
       chromecastClient = require('./chromecast-client.js'),
       homekitExtensions = require('./homekit-extensions.js'),
+      Promise = require('bluebird'),
       mdns = require('mdns');
 
 let Accessory, Service, Characteristic, UUIDGen;
@@ -243,22 +244,32 @@ function handleCallback(promise, callback){
   );
 }
 
+
+
 function addCharacteristics(accessory){
-  const lightbulbService = accessory.getService(Service.Lightbulb) || accessory.addService(Service.Lightbulb, accessory.chromecast.name);
+  const lightbulbService = accessory.getService(Service.Switch) || accessory.addService(Service.Switch, accessory.chromecast ? accessory.chromecast.name : 'Chromecast');
+
+  function wrapGetter(promisechain){
+    return (cb) => promisechain().timeout(2000).then(data => cb(null, data), cb);
+  }
 
   lightbulbService.getCharacteristic(Characteristic.On)
-    .on('get', cb => {
+    .on('get', wrapGetter(() => {
       if(!accessory.chromecast){
-        cb(null, false);
+        return Promise.reject('Not availabe');
       }
       else if(accessory.chromecast.currentStatus && accessory.chromecast.currentStatus.playerState){
-        cb(null, accessory.chromecast.currentStatus.playerState === 'PLAYING');
+        return Promise.resolve(accessory.chromecast.currentStatus.playerState === 'PLAYING');
       }
       else {
-        cb(null, accessory.chromecast.txtRecord && accessory.chromecast.txtRecord.st === '1');
+        const playing = accessory.chromecast.txtRecord && accessory.chromecast.txtRecord.st === '1';
+        return Promise.resolve(playing);
       }
-    })
+    }))
     .on('set', (value, cb) => {
+      if(!accessory.chromecast){
+        return cb('Not available');
+      }
       if(value){
         handleCallback(chromecastClient.play(accessory.chromecast), cb);
       }
@@ -269,31 +280,32 @@ function addCharacteristics(accessory){
 
   const nowPlayingCharacteristic = lightbulbService.getCharacteristic(NowPlaying) || lightbulbService.addCharacteristic(NowPlaying);
   nowPlayingCharacteristic
-    .on('get', cb => {
-      if(accessory.chromecast.currentStatus && accessory.chromecast.currentStatus.media){
-        cb(null, accessory.chromecast.currentStatus.media.metadata.title);
-      }
-      if(!accessory.chromecast ){
-        cb(null, '-');
-      }
-    })
-
-  const volumeCharacteristic = lightbulbService.getCharacteristic(Volume) || lightbulbService.addCharacteristic(Volume);
-  volumeCharacteristic
-    .on('get', cb => {
+    .on('get', wrapGetter(() => {
       if(!accessory.chromecast){
-        cb(null, 0);
+        return Promise.reject('Not available');
       }
-      else if(accessory.chromecast.currentStatus){
-        cb(null, parseInt(accessory.chromecast.currentStatus.volume.level * 100));
+      return chromecastClient.getStatus(accessory.chromecast)
+        .then(status => status.media.metadata.title)
+        .catch(() => accessory.chromecast.sessions && accessory.chromecast.sessions.length > 0 ? accessory.chromecast.sessions[0].displayName : '-');
       }
-      else {
-        chromecastClient.getStatus(accessory.chromecast)
-          .then(status => status.volume.level, () => chromecastClient.getVolume(accessory.chromecast))
-          .then(volume => cb(null, parseInt(volume * 100)), cb);
+    ));
+
+  const volumeCharacteristic = lightbulbService.getCharacteristic(Characteristic.Brightness) || lightbulbService.addCharacteristic(Characteristic.Brightness);
+  volumeCharacteristic
+    .on('get', wrapGetter(() => {
+      if(!accessory.chromecast){
+        return Promise.reject('Not available');
       }
-    })
-    .on('set', (value, cb) => handleCallback(chromecastClient.setVolume(accessory.chromecast, value), cb));
+      return chromecastClient
+        .getVolume(accessory.chromecast)
+        .then(volume => parseInt(volume * 100));
+    }))
+    .on('set', (value, cb) => {
+      if(!accessory.chromecast){
+        return cb('Not available');
+      }
+      handleCallback(chromecastClient.setVolume(accessory.chromecast, value), cb);
+    });
 
   /*const nameCharacteristic = lightbulbService.getCharacteristic(Characteristic.Name) || lightbulbService.addCharacteristic(Characteristic.Name);
   nameCharacteristic

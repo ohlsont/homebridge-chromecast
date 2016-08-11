@@ -8,7 +8,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node_modules/.bin/homebridge -D -P ./ -U ./config"
+    "dev": "DEBUG=* node_modules/.bin/homebridge -D -P ./ -U ./config"
   },
   "engines": {
     "node": ">=0.12.0",
