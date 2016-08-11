@@ -1,0 +1,26 @@
+{
+  "name": "homebridge-plugin-chromecast",
+  "version": "1.0.0",
+  "description": "",
+  "keywords": [
+    "homebridge-plugin"
+  ],
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "node_modules/.bin/homebridge -D -P ./ -U ./config"
+  },
+  "engines": {
+    "node": ">=0.12.0",
+    "homebridge": ">=0.2.0"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bluebird": "^3.4.1",
+    "castv2-client": "^1.1.2",
+    "hap-nodejs": "^0.3.2",
+    "lodash": "^4.14.2",
+    "mdns": "^2.3.3"
+  }
+}
