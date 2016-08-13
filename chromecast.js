@@ -1,13 +1,153 @@
 const Client = require('castv2-client').Client,
       DefaultMediaReceiver = require('castv2-client').DefaultMediaReceiver,
-      Promise = require('bluebird'),
-      MultiReceiver = require('./multi-receiver.js');
+      Promise = require('bluebird');
 
-const connections = {};
 
 function isGroup(chromecast){
   return chromecast.txtRecord.md === 'Google Cast Group';
 }
+
+class Chromecast{
+  constructor(chromecastConfig){
+    console.log('Connecting to ' + chromecastConfig.name);
+
+    this.chromecastConfig = chromecastConfig;
+    this.isConnected = false;
+    this.applications = [];
+
+    this.connect();
+  }
+
+  connect(){
+    const host = this.chromecastConfig.host,
+          port = this.chromecastConfig.port;
+
+    this.client = Promise.promisifyAll(new Client());
+
+    return this.client
+      .connectAsync({
+        host: host,
+        port: port
+      })
+      .then(() => {
+        this.client.on('status', this.onClientStatus);
+        this.client.on('error', this.onClientError);
+        this.client.connection.on('disconnect', this.onConnectionDisconnect);
+        this.client.heartbeat.on('timeout', this.onHeartbeatTimeout);
+        this.client.heartbeat.on('pong', this.onHeartbeatPong);
+        this.client.receiver.on('status', this.onReceiverStatus);
+        return this.client.getStatusAsync()
+      })
+      .then(status => this.onClientStatus(status));
+  }
+
+  disconnect(){
+    this.isConnected = false;
+    if(this.client && this.client.close){
+      this.client.close();
+    }
+  }
+
+  onClientStatus(status){
+    console.log('CLIENT GOT STATUS: \n' + JSON.stringify(status));
+
+    const oldApplication = this.currentApplication;
+    this.volume = status.volume;
+    this.applications = status.applications;
+    this.currentApplication = this.applications && this.applications.length > 0
+      ? this.applications[0]
+      : null;
+
+    if(this.currentApplication){
+      if(!this.media || !oldApplication || this.currentApplication.statusId !== oldApplication.statusId){
+        return this.client
+          .joinAsync(this.currentApplication, DefaultMediaReceiver)
+          .then(Promise.promisifyAll)
+          .then(media => this.media = media)
+          .then(media => {
+            this.media.on('status', this.onMediaStatus);
+            return this.media.getStatusAsync();
+          })
+          .then(status => this.onMediaStatus(status));
+      }
+    }
+    else{
+      this.media = null;
+
+    }
+    return Promise.resolve();
+  }
+
+  pause(){
+    return this.media
+      ? this.media.pauseAsync()
+      : Promise.resolve();
+  }
+
+  play(){
+    return this.media
+      ? this.media.playAsync()
+      : Promise.resolve();
+  }
+
+  stop(){
+    return this.media
+      ? this.media.stopAsync()
+      : Promise.resolve();
+  }
+
+  load(media, options){
+    return this.media
+      ? this.media.loadAsync(media, options)
+      : Promise.resolve();
+  }
+
+  seek(time){
+    return this.media
+      ? this.media.seekAsync(time)
+      : Promise.resolve();
+  }
+
+  onClientError(error){
+    console.log('CLIENT GOT ERROR: \n' + JSON.stringify(error));
+  }
+  /*
+  self.connection = self.createController(ConnectionController);
+    self.heartbeat  = self.createController(HeartbeatController);
+    self.receiver   = self.createController(ReceiverController);*/
+  onConnectionDisconnect(){
+    console.log('CONNECTION GOT DISCONNECT');
+    this.isConnected = false;
+  }
+
+  onHeartbeatTimeout(){
+    console.log('GOT HEARTBEAT TIMEOUT');
+  }
+
+  onHeartbeatPong(){
+    console.log('GOT HEARTBEAT PONG');
+  }
+
+  onReceiverStatus(status){
+    console.log('RECEIVER STATUS:\n' + JSON.stringify(status));
+    //SAME AS CLIENT STATUS?
+  }
+
+  onMediaStatus(status){
+    console.log('MEDIA STATUS:\n' + JSON.stringify(status));
+    if(this.media){
+      this.media.status = status;
+    }
+  }
+
+}
+
+module.exports = Chromecast;
+/*
+
+const connections = {};
+
+
 
 function connect(chromecast){
   console.log('Connecting to ' + chromecast.name);
@@ -19,9 +159,9 @@ function connect(chromecast){
     return Promise.resolve(connections[chromecast.name]);
   }
 
-  /*
+
   oogle.cast.receiver data={"requestId":9,"status":{"applications":[{"appId":"MultizoneLeader","displayName":"Spotify","isIdleScreen":false,"sessionId":"34F16C8A-89FF-401C-829F-E1CD3472CBC8","statusText":"Spotify"}],"volume":{"controlType":"attenuation","level":0.027450980618596077,"muted":false,"stepInterval":0.05000000074505806}},"type":"RECEIVER_STATUS"} +5ms
-  */
+
 
   return client.connectAsync(isGroup(chromecast) ? { host: host, port: chromecast.port } : host)
     .then(() => {
@@ -54,7 +194,7 @@ function join(client, chromecast){
   return client.getSessionsAsync()
     .then(sessions => (chromecast.sessions = sessions) && sessions)
     .then(sessions => sessions.length > 0
-      ? client.joinAsync(sessions[0], /*chromecast.txtRecord.md === 'Google Cast Group' ? MultiReceiver : */DefaultMediaReceiver).then(Promise.promisifyAll)
+      ? client.joinAsync(sessions[0], chromecast.txtRecord.md === 'Google Cast Group' ? MultiReceiver : DefaultMediaReceiver).then(Promise.promisifyAll)
       : Promise.reject('No session to join..')
     )
 }
@@ -130,7 +270,7 @@ function monitor(chromecast){
     });
 }
 
-/*
+
 { mediaSessionId: 32,
   playbackRate: 1,
   playerState: 'PLAYING',
@@ -152,7 +292,7 @@ function monitor(chromecast){
   currentItemId: 32,
   items: [ { itemId: 32, media: [Object], autoplay: false, customData: null } ],
   repeatMode: 'REPEAT_OFF' }
-*/
+
 
 function getStatus(chromecast){
   return connect(chromecast)
@@ -176,3 +316,4 @@ module.exports = {
   play: play,
   monitor: monitor
 }
+*/
