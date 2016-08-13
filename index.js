@@ -1,6 +1,5 @@
 const http = require('http'),
       _ = require('lodash'),
-      chromecastClient = require('./chromecast-client.js'),
       Chromecast = require('./chromecast.js'),
       homekitExtensions = require('./homekit-extensions.js'),
       Promise = require('bluebird'),
@@ -9,7 +8,6 @@ const http = require('http'),
 let Accessory, Service, Characteristic, UUIDGen;
 
 const browser = mdns.createBrowser(mdns.tcp('googlecast')),
-      Volume = homekitExtensions.Characteristic.Volume,
       NowPlaying = homekitExtensions.Characteristic.NowPlaying,
       discoveredChromecasts = {};
 
@@ -73,17 +71,36 @@ function HomebridgeChromecast(log, config, api) {
       this.api.on('didFinishLaunching', function() {
         platform.log('DidFinishLaunching');
 
-        browser.on('serviceUp', chromecast => {
-          console.log('Added Chromecast "%s" at %s:%d', chromecast.name, chromecast.addresses[0], chromecast.port);
+        browser.on('serviceUp', chromecastConfig => {
+          console.log('Added Chromecast "%s" at %s:%d', chromecastConfig.name, chromecastConfig.addresses[0], chromecastConfig.port);
 
-          discoveredChromecasts[chromecast.name] = chromecast;
+          const chromecast = new Chromecast(chromecastConfig);
 
-          const uuid = UUIDGen.generate(chromecast.txtRecord.id);
+          discoveredChromecasts[chromecastConfig.name] = chromecast;
+
+          const uuid = UUIDGen.generate(chromecastConfig.txtRecord.id);
           if(!_.find(this.accessories, { UUID: uuid })){
-            this.addAccessory(chromecast);
+            this.addAccessory(chromecastConfig);
           }
-          //chromecastClient.getStatus(chromecast);
-          new Chromecast(chromecast);
+
+          chromecast.on('isPlaying', isPlaying => {
+            console.log('isPlaying UPDATED: ' + isPlaying);
+            const accessory = _.find(this.accessories, { UUID: uuid });
+            accessory.getService(Service.Switch).getCharacteristic(Characteristic.On).setValue(isPlaying);
+          });
+
+          chromecast.on('isMuted', isMuted => {
+            const accessory = _.find(this.accessories, { UUID: uuid });
+            accessory.getService(Service.Switch)
+              .getCharacteristic(Characteristic.AudioFeedback)
+              .setValue(!isMuted);
+          });
+
+          chromecast.on('currentApplication', application => {
+            const accessory = _.find(this.accessories, { UUID: uuid });
+            accessory.getService(Service.Switch).getCharacteristic(NowPlaying).setValue(application ? application.displayName : '-');
+          });
+
         });
 
         browser.start();
@@ -115,6 +132,8 @@ HomebridgeChromecast.prototype.configureAccessory = function(accessory) {
   addCharacteristics(accessory);
 
   this.accessories.push(accessory);
+
+  return accessory;
 }
 
 //Handler will be invoked when user try to config your plugin
@@ -220,6 +239,7 @@ HomebridgeChromecast.prototype.addAccessory = function(chromecast) {
 
   this.accessories.push(newAccessory);
   this.api.registerPlatformAccessories('homebridge-chromecast', 'HomebridgeChromecast', [newAccessory]);
+  return newAccessory;
 }
 
 HomebridgeChromecast.prototype.updateAccessoriesReachability = function() {
@@ -258,19 +278,19 @@ function addCharacteristics(accessory){
       if(!accessory.chromecast){
         return Promise.reject('Not availabe');
       }
-      else if(accessory.chromecast.currentStatus && accessory.chromecast.currentStatus.playerState){
-        return Promise.resolve(accessory.chromecast.currentStatus.playerState === 'PLAYING');
+      else if(accessory.chromecast.media && accessory.chromecast.media.status){
+        return Promise.resolve(accessory.chromecast.isPlaying);
       }
       else {
-        const playing = accessory.chromecast.txtRecord && accessory.chromecast.txtRecord.st === '1';
+        const playing = accessory.chromecast.chromecastConfig.txtRecord && accessory.chromecast.chromecastConfig.txtRecord.st === '1';
         return Promise.resolve(playing);
       }
     }))
     .on('set', (value, cb) => {
       ///TODO: PAUSE/STOP PÅ MULTICAST ISTÄLLET FÖR SIG SJÄLV!!!
       //Få till Chromecast-alarm på morgonen??
-      if(!accessory.chromecast){
-        return cb('Not available');
+      if(!accessory.chromecast || !accessory.chromecast.media){
+        return cb('not working');
       }
       //always control group
       const chromecast = /*accessory.chromecast.sessions && accessory.chromecast.sessions[0] && accessory.chromecast.sessions[0].appId === 'MultizoneFollower'
@@ -279,71 +299,60 @@ function addCharacteristics(accessory){
         }) || accessory.chromecast
         :*/ accessory.chromecast;
 
-      console.log('FOUND CHROMECAST GROUP: ' + JSON.stringify(chromecast));
       if(value){
-        handleCallback(chromecastClient.play(chromecast), cb);
+        handleCallback(chromecast.play(), cb);
       }
       else{
-        handleCallback(chromecastClient.pause(chromecast), cb);
+        handleCallback(chromecast.pause(), cb);
       }
     });
 
   const nowPlayingCharacteristic = switchService.getCharacteristic(NowPlaying) || switchService.addCharacteristic(NowPlaying);
   nowPlayingCharacteristic
     .on('get', wrapGetter(() => {
-      if(!accessory.chromecast){
-        return Promise.reject('Not available');
+      const chromecast = accessory.chromecast;
+      if(!chromecast){
+        return cb('not working');
       }
-      return Promise.resolve()
-        .then(() => chromecastClient.getSessions(accessory.chromecast))
-        .then(sessions => sessions && sessions.length > 0 ? sessions[0].displayName : '-');
-        //.finally(() => accessory.chromecast.sessions && accessory.chromecast.sessions.length > 0 ? accessory.chromecast.sessions[0].displayName : '-');
+      else if(chromecast.currentApplication){
+        return Promise.resolve(chromecast.currentApplication.displayName);
       }
-    ));
+      else{
+        return Promise.resolve('-');
+      }
+    }));
 
   const volumeCharacteristic = switchService.getCharacteristic(Characteristic.Brightness) || switchService.addCharacteristic(Characteristic.Brightness);
   volumeCharacteristic
     .on('get', wrapGetter(() => {
-      if(!accessory.chromecast){
-        return Promise.reject('Not available');
+      if(!accessory.chromecast || !accessory.chromecast.volume){
+        return cb('not working');
       }
-      return chromecastClient
-        .getVolume(accessory.chromecast)
-        .then(volume => parseInt(volume * 100));
+      else{
+        return Promise.resolve(parseInt(accessory.chromecast.volume.level * 100));
+      }
     }))
     .on('set', (value, cb) => {
       if(!accessory.chromecast){
         return cb('Not available');
       }
-      handleCallback(chromecastClient.setVolume(accessory.chromecast, value), cb);
+      accessory.chromecast.setVolume(value).then(volume => cb(), cb);
     });
 
-  /*const nameCharacteristic = switchService.getCharacteristic(Characteristic.Name) || switchService.addCharacteristic(Characteristic.Name);
-  nameCharacteristic
-    .on('get', cb => chromecastClient.getStatus(accessory.chromecast).then(status => cb(null, 'my status'), cb));*/
+    const AudioFeedback = switchService.getCharacteristic(Characteristic.AudioFeedback) || switchService.addCharacteristic(Characteristic.AudioFeedback);
+    AudioFeedback
+      .on('get', wrapGetter(() => {
+        if(!accessory.chromecast || !accessory.chromecast.volume){
+          cb('not working');
+        }
+        else{
+          return Promise.resolve(!accessory.chromecast.volume.isMuted);
+        }
+      }))
+      .on('set', (value, cb) => {
+        if(!accessory.chromecast){
+          return cb('Not available');
+        }
+        accessory.chromecast.setMuted(!value).then(() => cb(), cb);
+      });
 }
-
-/*if (accessory.getService(Service.Lightbulb)) {
-  const lightbulbService = accessory.getService(Service.Lightbulb);
-
-  lightbulbService.getCharacteristic(Characteristic.On)
-    .on('get', function(callback) { callback(null, discoveredChromecasts[accessory.displayName].txtRecord.st === '1') })
-    .on('set', function(value, callback) {
-      platform.log(accessory.displayName, 'Light -> ' + value);
-      const host = discoveredChromecasts[accessory.displayName].addresses[0];
-      chromecastPlayBackControl(host, value ? 'play' : 'pause', callback);
-      callback();
-    });
-
-  const volumeCharacteristic = lightbulbService.getCharacteristic(Volume) || lightbulbService.addCharacteristic(Volume);
-
-  volumeCharacteristic
-    .on('get', function(callback) { getVolume(discoveredChromecasts[accessory.displayName], callback) })
-    .on('set', function(value, callback) {
-      setVolume(discoveredChromecasts[accessory.displayName], value, callback);
-    });
-
-  const nameCharacteristic = lightbulbService.getCharacteristic(Characteristic.Name) || lightbulbService.addCharacteristic(Characteristic.Name);
-  nameCharacteristic
-    .on('get', function(callback){ getCurrentlyPlaying(discoveredChromecasts[accessory.displayName], callback) });
-}*/

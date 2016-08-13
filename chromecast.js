@@ -2,13 +2,11 @@ const Client = require('castv2-client').Client,
       DefaultMediaReceiver = require('castv2-client').DefaultMediaReceiver,
       Promise = require('bluebird');
 
+const EventEmitter = require('events');
 
-function isGroup(chromecast){
-  return chromecast.txtRecord.md === 'Google Cast Group';
-}
-
-class Chromecast{
+class Chromecast extends EventEmitter{
   constructor(chromecastConfig){
+    super();
     console.log('Connecting to ' + chromecastConfig.name);
 
     this.chromecastConfig = chromecastConfig;
@@ -16,6 +14,10 @@ class Chromecast{
     this.applications = [];
 
     this.connect();
+  }
+
+  isGroup(){
+    return this.chromecastConfig.txtRecord.md === 'Google Cast Group';
   }
 
   connect(){
@@ -30,33 +32,51 @@ class Chromecast{
         port: port
       })
       .then(() => {
-        this.client.on('status', this.onClientStatus);
+        this.client.on('status', status => this.onClientStatus(status));
         this.client.on('error', this.onClientError);
         this.client.connection.on('disconnect', this.onConnectionDisconnect);
         this.client.heartbeat.on('timeout', this.onHeartbeatTimeout);
         this.client.heartbeat.on('pong', this.onHeartbeatPong);
         this.client.receiver.on('status', this.onReceiverStatus);
-        return this.client.getStatusAsync()
+        return this.client.getStatusAsync();
       })
       .then(status => this.onClientStatus(status));
   }
 
+  get isPlaying() {
+    return this.media && this.media.status && (this.media.status.playerState === 'PLAYING' || this.media.status.playerState === 'BUFFERING') ? true : false;
+  }
+
+  get isMuted() {
+    return this.volume && this.volume.muted ? true : false;
+  }
+
   disconnect(){
     this.isConnected = false;
-    if(this.client && this.client.close){
-      this.client.close();
+    if(this.client && this.client.closeAsync){
+      this.client.closeAsync();
     }
   }
 
   onClientStatus(status){
     console.log('CLIENT GOT STATUS: \n' + JSON.stringify(status));
 
-    const oldApplication = this.currentApplication;
+    const oldApplication = this.currentApplication,
+          oldVolume = this.volume;
+
     this.volume = status.volume;
     this.applications = status.applications;
     this.currentApplication = this.applications && this.applications.length > 0
       ? this.applications[0]
       : null;
+
+    if(!oldVolume || oldVolume.muted !== this.volume.muted){
+      this.emit('isMuted', this.volume.muted);
+    }
+
+    if(!oldApplication || oldApplication.statusId !== this.currentApplication.statusId){
+      this.emit('currentApplication', this.currentApplication);
+    }
 
     if(this.currentApplication){
       if(!this.media || !oldApplication || this.currentApplication.statusId !== oldApplication.statusId){
@@ -65,7 +85,7 @@ class Chromecast{
           .then(Promise.promisifyAll)
           .then(media => this.media = media)
           .then(media => {
-            this.media.on('status', this.onMediaStatus);
+            this.media.on('status', status => this.onMediaStatus(status));
             return this.media.getStatusAsync();
           })
           .then(status => this.onMediaStatus(status));
@@ -74,6 +94,9 @@ class Chromecast{
     else{
       this.media = null;
 
+    }
+    if(oldVolume !== this.volume){
+      this.emit('volume', this.volume);
     }
     return Promise.resolve();
   }
@@ -133,10 +156,35 @@ class Chromecast{
     //SAME AS CLIENT STATUS?
   }
 
+  setVolume(volume){
+    const decimalVolume = volume / 100;
+    return this.client.setVolumeAsync({ level: decimalVolume })
+      .then(() => {
+        if(this.volume){
+          this.volume.level = decimalVolume;
+        }
+      })
+      .then(() => decimalVolume);
+  }
+
+  setMuted(isMuted){
+    return this.client.setVolumeAsync({ muted: isMuted })
+      .then(() => {
+        if(this.volume){
+          this.volume.muted = isMuted;
+        }
+      })
+      .then(() => isMuted);
+  }
+
   onMediaStatus(status){
+    const previousIsPlaying = this.isPlaying;
     console.log('MEDIA STATUS:\n' + JSON.stringify(status));
     if(this.media){
       this.media.status = status;
+    }
+    if(previousIsPlaying !== this.isPlaying){
+      this.emit('isPlaying', this.isPlaying);
     }
   }
 
