@@ -228,24 +228,24 @@ HomebridgeChromecast.prototype.addAccessory = function(chromecastConfig) {
   const platform = this,
         uuid = UUIDGen.generate(chromecastConfig.txtRecord.id);
 
-  var newAccessory = new Accessory(chromecastConfig.name, uuid);
-  newAccessory.on('identify', function(paired, callback) {
-    platform.log(newAccessory.displayName, 'Identify!!!');
+  var accessory = new Accessory(chromecastConfig.name, uuid);
+  accessory.on('identify', function(paired, callback) {
+    platform.log(accessory.displayName, 'Identify!!!');
     callback();
   });
   // Plugin can save context on accessory
   // To help restore accessory in configureAccessory()
-  // newAccessory.context.something = 'Something'
+  // accessory.context.something = 'Something'
 
-  Object.defineProperty(newAccessory, 'chromecast', {
+  Object.defineProperty(accessory, 'chromecast', {
     get: () => discoveredChromecasts[accessory.displayName]
   });
 
-  addCharacteristics(newAccessory);
+  addCharacteristics(accessory);
 
-  this.accessories.push(newAccessory);
-  this.api.registerPlatformAccessories('homebridge-chromecast', 'HomebridgeChromecast', [newAccessory]);
-  return newAccessory;
+  this.accessories.push(accessory);
+  this.api.registerPlatformAccessories('homebridge-chromecast', 'HomebridgeChromecast', [accessory]);
+  return accessory;
 }
 
 HomebridgeChromecast.prototype.updateAccessoriesReachability = function() {
