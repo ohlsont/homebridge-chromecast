@@ -4,19 +4,11 @@ const http = require('http'),
       _ = require('lodash'),
       Chromecast = require('./chromecast.js'),
       homekitExtensions = require('./homekit-extensions.js'),
-      Promise = require('bluebird'),
-      mdns = require('mdns');
+      Promise = require('bluebird');
 
 let Accessory, Service, Characteristic, UUIDGen;
 
-const sequence = [
-    mdns.rst.DNSServiceResolve(),
-    'DNSServiceGetAddrInfo' in mdns.dns_sd ? mdns.rst.DNSServiceGetAddrInfo() : mdns.rst.getaddrinfo({families:[0]}),
-    mdns.rst.makeAddressesUnique()
-];
-
-const browser = mdns.createBrowser(mdns.tcp('googlecast'), { resolverSequence: sequence }),
-      NowPlaying = homekitExtensions.Characteristic.NowPlaying,
+const NowPlaying = homekitExtensions.Characteristic.NowPlaying,
       discoveredChromecasts = {};
 
 module.exports = function(homebridge) {
@@ -79,10 +71,9 @@ function HomebridgeChromecast(log, config, api) {
       this.api.on('didFinishLaunching', function() {
         platform.log('DidFinishLaunching');
 
-        browser.on('serviceUp', chromecastConfig => {
+        Chromecast.scan(chromecast => {
+          const chromecastConfig = chromecast.chromecastConfig;
           console.log('Added Chromecast "%s" at %s:%d', chromecastConfig.name, chromecastConfig.addresses[0], chromecastConfig.port);
-
-          const chromecast = new Chromecast(chromecastConfig);
 
           discoveredChromecasts[chromecastConfig.name] = chromecast;
 
@@ -110,8 +101,6 @@ function HomebridgeChromecast(log, config, api) {
           });
 
         });
-
-        browser.start();
       }.bind(this));
   }
 }
@@ -320,7 +309,7 @@ function addCharacteristics(accessory){
     .on('get', wrapGetter(() => {
       const chromecast = accessory.chromecast;
       if(!chromecast){
-        return cb('not working');
+        return Promise.reject('not working');
       }
       else if(chromecast.currentApplication){
         return Promise.resolve(chromecast.currentApplication.displayName);
@@ -334,7 +323,7 @@ function addCharacteristics(accessory){
   volumeCharacteristic
     .on('get', wrapGetter(() => {
       if(!accessory.chromecast || !accessory.chromecast.volume){
-        return cb('not working');
+        return Promise.reject('not working');
       }
       else{
         return Promise.resolve(parseInt(accessory.chromecast.volume.level * 100));
@@ -351,7 +340,7 @@ function addCharacteristics(accessory){
     AudioFeedback
       .on('get', wrapGetter(() => {
         if(!accessory.chromecast || !accessory.chromecast.volume){
-          cb('not working');
+          return Promise.reject('not working');
         }
         else{
           return Promise.resolve(!accessory.chromecast.volume.isMuted);
