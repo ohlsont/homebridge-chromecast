@@ -7,7 +7,13 @@ const http = require('http'),
 
 let Accessory, Service, Characteristic, UUIDGen;
 
-const browser = mdns.createBrowser(mdns.tcp('googlecast')),
+const sequence = [
+    mdns.rst.DNSServiceResolve(),
+    'DNSServiceGetAddrInfo' in mdns.dns_sd ? mdns.rst.DNSServiceGetAddrInfo() : mdns.rst.getaddrinfo({families:[0]}),
+    mdns.rst.makeAddressesUnique()
+];
+
+const browser = mdns.createBrowser(mdns.tcp('googlecast'), { resolverSequence: sequence }),
       NowPlaying = homekitExtensions.Characteristic.NowPlaying,
       discoveredChromecasts = {};
 
@@ -217,12 +223,12 @@ HomebridgeChromecast.prototype.configurationRequestHandler = function(context, r
 }
 
 // Sample function to show how developer can add accessory dynamically from outside event
-HomebridgeChromecast.prototype.addAccessory = function(chromecast) {
+HomebridgeChromecast.prototype.addAccessory = function(chromecastConfig) {
   this.log('Add Accessory');
   const platform = this,
-        uuid = UUIDGen.generate(chromecast.txtRecord.id);
+        uuid = UUIDGen.generate(chromecastConfig.txtRecord.id);
 
-  var newAccessory = new Accessory(chromecast.name, uuid);
+  var newAccessory = new Accessory(chromecastConfig.name, uuid);
   newAccessory.on('identify', function(paired, callback) {
     platform.log(newAccessory.displayName, 'Identify!!!');
     callback();
@@ -232,7 +238,7 @@ HomebridgeChromecast.prototype.addAccessory = function(chromecast) {
   // newAccessory.context.something = 'Something'
 
   Object.defineProperty(newAccessory, 'chromecast', {
-    get: () => Promise.resolve(chromecast)
+    get: () => discoveredChromecasts[accessory.displayName]
   });
 
   addCharacteristics(newAccessory);
