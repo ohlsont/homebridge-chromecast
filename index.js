@@ -1,3 +1,5 @@
+/* @flow weak */
+
 const http = require('http'),
       _ = require('lodash'),
       Chromecast = require('./chromecast.js'),
