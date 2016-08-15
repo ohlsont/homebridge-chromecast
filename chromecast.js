@@ -94,11 +94,11 @@ class Chromecast extends Events
       ? this.applications[0]
       : null;
 
-    if(!oldVolume || oldVolume.muted !== this.volume.muted){
+    if(!oldVolume || !this.volume || oldVolume.muted !== this.volume.muted){
       this.emit('isMuted', this.volume.muted);
     }
 
-    if(!oldApplication || oldApplication.statusId !== this.currentApplication.statusId){
+    if(!oldApplication || !this.currentApplication || oldApplication.statusId !== this.currentApplication.statusId){
       this.emit('currentApplication', this.currentApplication);
     }
 
