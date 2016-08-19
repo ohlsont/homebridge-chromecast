@@ -117,7 +117,6 @@ class Chromecast extends Events
     }
     else{
       this.media = null;
-
     }
     if(oldVolume !== this.volume){
       this.emit('volume', this.volume);
