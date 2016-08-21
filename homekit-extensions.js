@@ -1,3 +1,6 @@
+/* @flow weak */
+'use strict';
+
 const Characteristic = require('hap-nodejs').Characteristic;
 
 const UUID = '00000008-0000-1000-8000-0026BB765296';

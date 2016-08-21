@@ -35,3 +35,5 @@ api/webhooks.json
 **/artillery_report*.json.html
 dist/bundle.js
 dist/bundle.js.map
+
+config/accessories

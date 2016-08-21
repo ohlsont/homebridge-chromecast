@@ -1,9 +1,9 @@
 {
     "bridge": {
         "name": "HomebridgeChromecast",
-        "username": "CC:22:3D:E3:CE:13",
-        "port": 51803,
-        "pin": "123-45-677"
+        "username": "CC:22:3D:E3:CE:07",
+        "port": 51891,
+        "pin": "123-45-675"
     },
 
     "description": "This is an example configuration file with one fake accessory and one fake platform. You can use this as a template for creating your own configuration file containing devices you actually own.",
@@ -14,7 +14,7 @@
 
     "platforms": [
         {
-            "platform" : "HomebridgeChromecast",
+            "platform" : "HomebridgePluginChromecast",
             "name" : "Chromecast"
         }
     ]

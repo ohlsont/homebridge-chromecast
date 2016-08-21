@@ -1,4 +1,5 @@
 /* @flow weak */
+'use strict';
 
 const http = require('http'),
       _ = require('lodash'),
@@ -24,7 +25,7 @@ module.exports = function(homebridge) {
 
   // For platform plugin to be considered as dynamic platform plugin,
   // registerPlatform(pluginName, platformName, constructor, dynamic), dynamic must be true
-  homebridge.registerPlatform('homebridge-chromecast', 'HomebridgeChromecast', HomebridgeChromecast, true);
+  homebridge.registerPlatform('homebridge-plugin-chromecast', 'HomebridgePluginChromecast', HomebridgeChromecast, true);
 }
 
 // Platform constructor
@@ -75,7 +76,7 @@ function HomebridgeChromecast(log, config, api) {
           const chromecastConfig = chromecast.chromecastConfig;
           console.log('Added Chromecast "%s" at %s:%d', chromecastConfig.name, chromecastConfig.addresses[0], chromecastConfig.port);
 
-          const uuid = UUIDGen.generate(chromecastConfig.txtRecord.id + 'dev');
+          const uuid = UUIDGen.generate(chromecastConfig.txtRecord.id);
 
           discoveredChromecasts[uuid] = chromecast;
 
@@ -158,7 +159,7 @@ HomebridgeChromecast.prototype.configurationRequestHandler = function(context, r
     // set 'type' to platform if the plugin is trying to modify platforms section
     // set 'replace' to true will let homebridge replace existing config in config.json
     // 'config' is the data platform trying to save
-    callback(null, 'platform', true, {'platform':'HomebridgeChromecast', 'otherConfig':'SomeData'});
+    callback(null, 'platform', true, {'platform':'HomebridgePluginChromecast', 'otherConfig':'SomeData'});
     return;
   }
 
@@ -245,7 +246,7 @@ HomebridgeChromecast.prototype.addAccessory = function(chromecastConfig) {
   addCharacteristics(accessory);
 
   this.accessories.push(accessory);
-  this.api.registerPlatformAccessories('homebridge-chromecast', 'HomebridgeChromecast', [accessory]);
+  this.api.registerPlatformAccessories('homebridge-plugin-chromecast', 'HomebridgePluginChromecast', [accessory]);
 
   return accessory;
 }
@@ -262,7 +263,7 @@ HomebridgeChromecast.prototype.updateAccessoriesReachability = function() {
 // Sample function to show how developer can remove accessory dynamically from outside event
 HomebridgeChromecast.prototype.removeAccessory = function() {
   this.log('Remove Accessory');
-  this.api.unregisterPlatformAccessories('homebridge-chromecast', 'HomebridgeChromecast', this.accessories);
+  this.api.unregisterPlatformAccessories('homebridge-plugin-chromecast', 'HomebridgePluginChromecast', this.accessories);
 
   this.accessories = [];
 }

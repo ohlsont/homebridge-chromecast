@@ -1,4 +1,5 @@
 /* @flow weak */
+'use strict';
 
 const Client = require('castv2-client').Client,
       DefaultMediaReceiver = require('castv2-client').DefaultMediaReceiver,
